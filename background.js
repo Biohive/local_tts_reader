@@ -4,6 +4,17 @@ let currentPlayerState = 'stopped';
 let textProcessorInjected = false;
 let offscreenReady = false;
 
+// Safe message sending helper that handles connection errors gracefully
+function sendSafeMessage(message, callback) {
+  chrome.runtime.sendMessage(message, (response) => {
+    if (chrome.runtime.lastError) {
+      console.log('Message send (receiver not ready):', message.type);
+    } else if (callback) {
+      callback(response);
+    }
+  });
+}
+
 // Create or get the offscreen document
 async function setupOffscreenDocument() {
   // Check if we already have an offscreen document
@@ -132,39 +143,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         isRecording = message.record;
         // Set state to loading before starting the audio stream
         currentPlayerState = 'loading';
-        chrome.runtime.sendMessage({ 
+        sendSafeMessage({ 
           type: 'playerStateUpdate', 
           state: 'loading' 
-        }, () => {
-          if (chrome.runtime.lastError) {
-            console.log('State update sent');
-          }
         });
         startStreamingAudio(message.text, message.settings);
         sendResponse({ success: true });
         break;
         
       case 'controlAudio':
-        chrome.runtime.sendMessage({ 
+        sendSafeMessage({ 
           type: message.action, 
           data: message.data 
-        }, () => {
-          if (chrome.runtime.lastError) {
-            console.log('Control message sent');
-          }
         });
         sendResponse({ success: true });
         break;
         
       case 'stateUpdate':
         currentPlayerState = message.state;
-        chrome.runtime.sendMessage({ 
+        sendSafeMessage({ 
           type: 'playerStateUpdate', 
           state: message.state 
-        }, () => {
-          if (chrome.runtime.lastError) {
-            console.log('State update sent');
-          }
         });
         sendResponse({ success: true });
         break;
@@ -173,13 +172,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Audio is ready but not yet playing
         if (currentPlayerState === 'loading') {
           currentPlayerState = 'ready';
-          chrome.runtime.sendMessage({ 
+          sendSafeMessage({ 
             type: 'playerStateUpdate', 
             state: 'ready' 
-          }, () => {
-            if (chrome.runtime.lastError) {
-              console.log('Ready state sent');
-            }
           });
         }
         sendResponse({ success: true });
@@ -190,7 +185,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
         
       case 'seek':
-        chrome.runtime.sendMessage({ 
+        sendSafeMessage({ 
           type: 'seek', 
           time: message.time 
         }, (response) => {
@@ -199,7 +194,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // Will respond async
         
       case 'getTimeInfo':
-        chrome.runtime.sendMessage({ 
+        sendSafeMessage({ 
           type: 'getTimeInfo' 
         }, (response) => {
           sendResponse(response || { timeInfo: null });
@@ -208,11 +203,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
       case 'timeUpdate':
         // Forward time updates to the popup
-        chrome.runtime.sendMessage(message, () => {
-          if (chrome.runtime.lastError) {
-            console.log('Time update forwarded');
-          }
-        });
+        sendSafeMessage(message);
         sendResponse({ success: true });
         break;
         
@@ -259,28 +250,20 @@ async function startStreamingAudio(text, settings) {
     const arrayBuffer = await audioBlob.arrayBuffer();
     
     // Send the audio data to the offscreen document
-    chrome.runtime.sendMessage({ 
+    sendSafeMessage({ 
       type: 'processAudioData', 
       audioData: Array.from(new Uint8Array(arrayBuffer)),
       mimeType: mimeType,
       isRecording: isRecording
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Error sending message to offscreen:', chrome.runtime.lastError);
-      }
     });
   } catch (error) {
     console.error('Error streaming audio:', error);
     
     // Update state to stopped on error
     currentPlayerState = 'stopped';
-    chrome.runtime.sendMessage({ 
+    sendSafeMessage({ 
       type: 'playerStateUpdate', 
       state: 'stopped' 
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Error sending error message:', chrome.runtime.lastError);
-      }
     });
   }
 }

@@ -4,6 +4,17 @@ let isPlaying = false;
 let audioSource = null;
 let hasSourceConnected = false;
 
+// Safe message sending helper that handles connection errors gracefully
+function sendSafeMessage(message, callback) {
+  chrome.runtime.sendMessage(message, (response) => {
+    if (chrome.runtime.lastError) {
+      console.log('Message send (receiver not ready):', message.type);
+    } else if (callback) {
+      callback(response);
+    }
+  });
+}
+
 // Initialize the audio context
 function initAudio() {
   if (!audioContext) {
@@ -42,13 +53,9 @@ function processAudioData(audioDataArray, mimeType, isRecording) {
     
     // If recording is enabled, send URL back for download
     if (isRecording) {
-      chrome.runtime.sendMessage({ 
+      sendSafeMessage({ 
         type: 'recordingComplete', 
         audioUrl: audioUrl
-      }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Recording URL sent');
-        }
       });
     }
     
@@ -56,20 +63,12 @@ function processAudioData(audioDataArray, mimeType, isRecording) {
     playAudioUrl(audioUrl);
     
     // Notify that audio is ready to play
-    chrome.runtime.sendMessage({ type: 'audioReady' }, () => {
-      if (chrome.runtime.lastError) {
-        console.log('Audio ready notification sent');
-      }
-    });
+    sendSafeMessage({ type: 'audioReady' });
   } catch (error) {
     console.error('Error processing audio data:', error);
-    chrome.runtime.sendMessage({ 
+    sendSafeMessage({ 
       type: 'streamError', 
       error: error.message 
-    }, () => {
-      if (chrome.runtime.lastError) {
-        console.log('Error notification sent');
-      }
     });
   }
 }
@@ -103,47 +102,27 @@ function playAudioUrl(audioUrl) {
         }
       }
       
-      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'playing' }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Message sent (connection may not exist yet)');
-        }
-      });
+      sendSafeMessage({ type: 'stateUpdate', state: 'playing' });
     };
     
     audioElement.onpause = () => {
       isPlaying = false;
-      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'paused' }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Pause state sent');
-        }
-      });
+      sendSafeMessage({ type: 'stateUpdate', state: 'paused' });
     };
     
     audioElement.onended = () => {
       isPlaying = false;
-      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'stopped' }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Stopped state sent');
-        }
-      });
-      chrome.runtime.sendMessage({ type: 'streamComplete' }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Stream complete sent');
-        }
-      });
+      sendSafeMessage({ type: 'stateUpdate', state: 'stopped' });
+      sendSafeMessage({ type: 'streamComplete' });
     };
     
     // Add timeupdate event for seeking
     audioElement.ontimeupdate = () => {
-      chrome.runtime.sendMessage({ 
+      sendSafeMessage({ 
         type: 'timeUpdate', 
         timeInfo: {
           currentTime: audioElement.currentTime,
           duration: audioElement.duration
-        }
-      }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Time update sent');
         }
       });
     };
@@ -151,24 +130,16 @@ function playAudioUrl(audioUrl) {
     // Start playing
     audioElement.play().catch(err => {
       console.error('Play error:', err);
-      chrome.runtime.sendMessage({ 
+      sendSafeMessage({ 
         type: 'streamError', 
         error: err.message 
-      }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Play error notification sent');
-        }
       });
     });
   } catch (error) {
     console.error('Error playing audio URL:', error);
-    chrome.runtime.sendMessage({ 
+    sendSafeMessage({ 
       type: 'streamError', 
       error: error.message 
-    }, () => {
-      if (chrome.runtime.lastError) {
-        console.log('Error notification sent');
-      }
     });
   }
 }
@@ -234,11 +205,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (audioElement) {
           audioElement.pause();
           audioElement.currentTime = 0;
-          chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'stopped' }, () => {
-            if (chrome.runtime.lastError) {
-              console.log('Background message sent');
-            }
-          });
+          sendSafeMessage({ type: 'stateUpdate', state: 'stopped' });
         }
         sendResponse({ success: true });
         break;
