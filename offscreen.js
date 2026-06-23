@@ -10,6 +10,11 @@ function initAudio() {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
   }
   
+  // Resume audio context if suspended
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().catch(e => console.error('Error resuming audio context:', e));
+  }
+  
   if (!audioElement) {
     audioElement = document.getElementById('audioElement');
     if (!audioElement) {
@@ -40,6 +45,10 @@ function processAudioData(audioDataArray, mimeType, isRecording) {
       chrome.runtime.sendMessage({ 
         type: 'recordingComplete', 
         audioUrl: audioUrl
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Recording URL sent');
+        }
       });
     }
     
@@ -47,12 +56,20 @@ function processAudioData(audioDataArray, mimeType, isRecording) {
     playAudioUrl(audioUrl);
     
     // Notify that audio is ready to play
-    chrome.runtime.sendMessage({ type: 'audioReady' });
+    chrome.runtime.sendMessage({ type: 'audioReady' }, () => {
+      if (chrome.runtime.lastError) {
+        console.log('Audio ready notification sent');
+      }
+    });
   } catch (error) {
     console.error('Error processing audio data:', error);
     chrome.runtime.sendMessage({ 
       type: 'streamError', 
       error: error.message 
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.log('Error notification sent');
+      }
     });
   }
 }
@@ -75,36 +92,45 @@ function playAudioUrl(audioUrl) {
       // Connect to audio context only once
       if (!hasSourceConnected) {
         try {
-          // Disconnect previous source if it exists
-          if (audioSource) {
-            try {
-              audioSource.disconnect();
-            } catch (e) {
-              // Ignore errors if already disconnected
-            }
+          // Create and connect new source only if it doesn't exist
+          if (!audioSource) {
+            audioSource = audioContext.createMediaElementSource(audioElement);
+            audioSource.connect(audioContext.destination);
           }
-          
-          // Create and connect new source
-          audioSource = audioContext.createMediaElementSource(audioElement);
-          audioSource.connect(audioContext.destination);
           hasSourceConnected = true;
         } catch (e) {
           console.error('Error connecting audio source:', e);
         }
       }
       
-      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'playing' });
+      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'playing' }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Message sent (connection may not exist yet)');
+        }
+      });
     };
     
     audioElement.onpause = () => {
       isPlaying = false;
-      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'paused' });
+      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'paused' }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Pause state sent');
+        }
+      });
     };
     
     audioElement.onended = () => {
       isPlaying = false;
-      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'stopped' });
-      chrome.runtime.sendMessage({ type: 'streamComplete' });
+      chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'stopped' }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Stopped state sent');
+        }
+      });
+      chrome.runtime.sendMessage({ type: 'streamComplete' }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Stream complete sent');
+        }
+      });
     };
     
     // Add timeupdate event for seeking
@@ -115,6 +141,10 @@ function playAudioUrl(audioUrl) {
           currentTime: audioElement.currentTime,
           duration: audioElement.duration
         }
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Time update sent');
+        }
       });
     };
     
@@ -124,6 +154,10 @@ function playAudioUrl(audioUrl) {
       chrome.runtime.sendMessage({ 
         type: 'streamError', 
         error: err.message 
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Play error notification sent');
+        }
       });
     });
   } catch (error) {
@@ -131,6 +165,10 @@ function playAudioUrl(audioUrl) {
     chrome.runtime.sendMessage({ 
       type: 'streamError', 
       error: error.message 
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.log('Error notification sent');
+      }
     });
   }
 }
@@ -169,45 +207,61 @@ function seekTo(time) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Offscreen received message:', message.type);
   
-  switch (message.type) {
-    case 'processAudioData':
-      if (message.audioData) {
-        processAudioData(message.audioData, message.mimeType, message.isRecording);
-      }
-      break;
-      
-    case 'play':
-      if (audioElement) {
-        audioElement.play();
-      }
-      break;
-      
-    case 'pause':
-      if (audioElement) {
-        audioElement.pause();
-      }
-      break;
-      
-    case 'stop':
-      if (audioElement) {
-        audioElement.pause();
-        audioElement.currentTime = 0;
-        chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'stopped' });
-      }
-      break;
-      
-    case 'seek':
-      const success = seekTo(message.time);
-      sendResponse({ success });
-      return true;
-      
-    case 'getState':
-      sendResponse({ state: getPlayerState() });
-      return true;
-      
-    case 'getTimeInfo':
-      sendResponse({ timeInfo: getTimeInfo() });
-      return true;
+  try {
+    switch (message.type) {
+      case 'processAudioData':
+        if (message.audioData) {
+          processAudioData(message.audioData, message.mimeType, message.isRecording);
+        }
+        sendResponse({ success: true });
+        break;
+        
+      case 'play':
+        if (audioElement) {
+          audioElement.play().catch(err => console.error('Play error:', err));
+        }
+        sendResponse({ success: true });
+        break;
+        
+      case 'pause':
+        if (audioElement) {
+          audioElement.pause();
+        }
+        sendResponse({ success: true });
+        break;
+        
+      case 'stop':
+        if (audioElement) {
+          audioElement.pause();
+          audioElement.currentTime = 0;
+          chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'stopped' }, () => {
+            if (chrome.runtime.lastError) {
+              console.log('Background message sent');
+            }
+          });
+        }
+        sendResponse({ success: true });
+        break;
+        
+      case 'seek':
+        const success = seekTo(message.time);
+        sendResponse({ success });
+        break;
+        
+      case 'getState':
+        sendResponse({ state: getPlayerState() });
+        break;
+        
+      case 'getTimeInfo':
+        sendResponse({ timeInfo: getTimeInfo() });
+        break;
+        
+      default:
+        sendResponse({ error: 'Unknown message type' });
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
+    sendResponse({ error: error.message });
   }
 });
 

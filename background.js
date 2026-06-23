@@ -1,6 +1,8 @@
 let offscreenDocument = null;
 let isRecording = false;
 let currentPlayerState = 'stopped';
+let textProcessorInjected = false;
+let offscreenReady = false;
 
 // Create or get the offscreen document
 async function setupOffscreenDocument() {
@@ -11,6 +13,7 @@ async function setupOffscreenDocument() {
 
   if (existingContexts.length > 0) {
     offscreenDocument = existingContexts[0];
+    offscreenReady = true;
     return;
   }
 
@@ -20,6 +23,8 @@ async function setupOffscreenDocument() {
     reasons: ['AUDIO_PLAYBACK'],
     justification: 'Playing TTS audio in the background'
   });
+  
+  offscreenReady = true;
 }
 
 // Set up context menu items
@@ -70,11 +75,14 @@ async function processAndReadText(text, tabId) {
     // Process text if enabled
     if (settings.preprocessText && tabId) {
       try {
-        // Inject the text processor script if needed
-        await chrome.scripting.executeScript({
-          target: { tabId: tabId },
-          files: ['textProcessor.js']
-        });
+        // Inject the text processor script only once per tab
+        if (!textProcessorInjected) {
+          await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['textProcessor.js']
+          });
+          textProcessorInjected = true;
+        }
         
         // Process the text
         const result = await chrome.scripting.executeScript({
@@ -114,74 +122,106 @@ async function processAndReadText(text, tabId) {
 
 // Handle messages from popup or offscreen document
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  switch (message.type) {
-    case 'setupOffscreen':
-      setupOffscreenDocument().then(() => sendResponse({ success: true }));
-      return true;
-      
-    case 'startStreaming':
-      isRecording = message.record;
-      // Set state to loading before starting the audio stream
-      currentPlayerState = 'loading';
-      chrome.runtime.sendMessage({ 
-        type: 'playerStateUpdate', 
-        state: 'loading' 
-      });
-      startStreamingAudio(message.text, message.settings);
-      sendResponse({ success: true });
-      return true;
-      
-    case 'controlAudio':
-      chrome.runtime.sendMessage({ 
-        type: message.action, 
-        data: message.data 
-      });
-      return true;
-      
-    case 'stateUpdate':
-      currentPlayerState = message.state;
-      chrome.runtime.sendMessage({ 
-        type: 'playerStateUpdate', 
-        state: message.state 
-      });
-      return true;
-      
-    case 'audioReady':
-      // Audio is ready but not yet playing
-      if (currentPlayerState === 'loading') {
-        currentPlayerState = 'ready';
+  try {
+    switch (message.type) {
+      case 'setupOffscreen':
+        setupOffscreenDocument().then(() => sendResponse({ success: true }));
+        return true; // Will respond async
+        
+      case 'startStreaming':
+        isRecording = message.record;
+        // Set state to loading before starting the audio stream
+        currentPlayerState = 'loading';
         chrome.runtime.sendMessage({ 
           type: 'playerStateUpdate', 
-          state: 'ready' 
+          state: 'loading' 
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.log('State update sent');
+          }
         });
-      }
-      return true;
-      
-    case 'getPlayerState':
-      sendResponse({ state: currentPlayerState });
-      return true;
-      
-    case 'seek':
-      chrome.runtime.sendMessage({ 
-        type: 'seek', 
-        time: message.time 
-      }, (response) => {
-        sendResponse(response);
-      });
-      return true;
-      
-    case 'getTimeInfo':
-      chrome.runtime.sendMessage({ 
-        type: 'getTimeInfo' 
-      }, (response) => {
-        sendResponse(response);
-      });
-      return true;
-      
-    case 'timeUpdate':
-      // Forward time updates to the popup
-      chrome.runtime.sendMessage(message);
-      return true;
+        startStreamingAudio(message.text, message.settings);
+        sendResponse({ success: true });
+        break;
+        
+      case 'controlAudio':
+        chrome.runtime.sendMessage({ 
+          type: message.action, 
+          data: message.data 
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.log('Control message sent');
+          }
+        });
+        sendResponse({ success: true });
+        break;
+        
+      case 'stateUpdate':
+        currentPlayerState = message.state;
+        chrome.runtime.sendMessage({ 
+          type: 'playerStateUpdate', 
+          state: message.state 
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.log('State update sent');
+          }
+        });
+        sendResponse({ success: true });
+        break;
+        
+      case 'audioReady':
+        // Audio is ready but not yet playing
+        if (currentPlayerState === 'loading') {
+          currentPlayerState = 'ready';
+          chrome.runtime.sendMessage({ 
+            type: 'playerStateUpdate', 
+            state: 'ready' 
+          }, () => {
+            if (chrome.runtime.lastError) {
+              console.log('Ready state sent');
+            }
+          });
+        }
+        sendResponse({ success: true });
+        break;
+        
+      case 'getPlayerState':
+        sendResponse({ state: currentPlayerState });
+        break;
+        
+      case 'seek':
+        chrome.runtime.sendMessage({ 
+          type: 'seek', 
+          time: message.time 
+        }, (response) => {
+          sendResponse(response || { success: false });
+        });
+        return true; // Will respond async
+        
+      case 'getTimeInfo':
+        chrome.runtime.sendMessage({ 
+          type: 'getTimeInfo' 
+        }, (response) => {
+          sendResponse(response || { timeInfo: null });
+        });
+        return true; // Will respond async
+        
+      case 'timeUpdate':
+        // Forward time updates to the popup
+        chrome.runtime.sendMessage(message, () => {
+          if (chrome.runtime.lastError) {
+            console.log('Time update forwarded');
+          }
+        });
+        sendResponse({ success: true });
+        break;
+        
+      default:
+        sendResponse({ error: 'Unknown message type' });
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
+    sendResponse({ error: error.message });
   }
 });
 
@@ -189,6 +229,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function startStreamingAudio(text, settings) {
   try {
     await setupOffscreenDocument();
+    
+    // Add a small delay to ensure offscreen document is fully ready
+    await new Promise(resolve => setTimeout(resolve, 100));
     
     const response = await fetch(settings.serverUrl, {
       method: 'POST',
@@ -221,19 +264,23 @@ async function startStreamingAudio(text, settings) {
       audioData: Array.from(new Uint8Array(arrayBuffer)),
       mimeType: mimeType,
       isRecording: isRecording
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error sending message to offscreen:', chrome.runtime.lastError);
+      }
     });
   } catch (error) {
     console.error('Error streaming audio:', error);
-    chrome.runtime.sendMessage({ 
-      type: 'streamError', 
-      error: error.message 
-    });
     
     // Update state to stopped on error
     currentPlayerState = 'stopped';
     chrome.runtime.sendMessage({ 
       type: 'playerStateUpdate', 
       state: 'stopped' 
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error sending error message:', chrome.runtime.lastError);
+      }
     });
   }
 }
