@@ -45,16 +45,30 @@ git clone https://github.com/phildougherty/local_tts_reader.git
 
 ## Voice Options
 
-The extension supports the following voices:
-- Adam (Alloy) - `am_adam`
+The extension dynamically fetches available voices from your TTS server via the `/v1/audio/voices` endpoint. Voice options depend on your server implementation.
+
+### Fetching Voices
+
+1. Configure your server URL in the settings
+2. Click the **refresh icon** next to the voice dropdown to fetch available voices from your server
+3. The extension caches the voice list for future use
+
+### Default Voices (Fallback)
+
+If voice fetching is not available, the extension includes default OpenAI-compatible voice options:
+
+**Female Voices:**
 - Nicole (Ash) - `af_nicole`
-- Emma (Coral) - `bf_emma`
-- Bella (Echo) - `af_bella`
+- Bella (Echo) - `af_bella` (default)
 - Sarah (Fable) - `af_sarah`
-- George (Onyx) - `bm_george`
 - Isabella (Nova) - `bf_isabella`
-- Michael (Sage) - `am_michael`
 - Sky (Shimmer) - `af_sky`
+
+**Male Voices:**
+- Adam (Alloy) - `am_adam`
+- George (Onyx) - `bm_george`
+- Michael (Sage) - `am_michael`
+- Emma (Coral) - `bf_emma`
 
 ## Server Requirements
 
