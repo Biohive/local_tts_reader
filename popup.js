@@ -144,10 +144,78 @@ function processText(text, settings) {
   return text;
 }
 
+async function fetchVoices() {
+  const btn = document.getElementById('refreshVoicesBtn');
+  const icon = btn.querySelector('i');
+  btn.disabled = true;
+  icon.classList.add('fa-spin');
+
+  try {
+    const serverUrl = document.getElementById('serverUrl').value.trim();
+    const baseUrl = new URL(serverUrl).origin;
+    const response = await fetch(`${baseUrl}/v1/audio/voices`);
+    if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    const data = await response.json();
+
+    // Kokoro returns { voices: [...] } or just an array
+    const voices = Array.isArray(data) ? data : (data.voices || []);
+    if (!voices.length) throw new Error('No voices returned from server');
+
+    const select = document.getElementById('voice');
+    const currentVoice = select.value;
+    select.innerHTML = '';
+    const voiceIds = [];
+    voices.forEach(v => {
+      const id = (typeof v === 'object') ? (v.id || v.name || JSON.stringify(v)) : v;
+      voiceIds.push(id);
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      select.appendChild(opt);
+    });
+
+    // Restore previous selection if still available
+    if ([...select.options].some(o => o.value === currentVoice)) {
+      select.value = currentVoice;
+    }
+
+    // Save voice list to storage
+    await chrome.storage.local.set({ savedVoiceIds: voiceIds });
+    await saveSettings();
+    updateStatus(`Loaded ${voices.length} voice${voices.length !== 1 ? 's' : ''}`, false);
+  } catch (err) {
+    updateStatus(`Failed to fetch voices: ${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+    icon.classList.remove('fa-spin');
+  }
+}
+
+async function restoreVoiceList() {
+  const result = await chrome.storage.local.get('savedVoiceIds');
+  if (result.savedVoiceIds && result.savedVoiceIds.length > 0) {
+    const select = document.getElementById('voice');
+    const currentVoice = select.value;
+    select.innerHTML = '';
+    result.savedVoiceIds.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      select.appendChild(opt);
+    });
+    if ([...select.options].some(o => o.value === currentVoice)) {
+      select.value = currentVoice;
+    }
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async function() {
   // Initialize audio player
   audioPlayer = new AudioPlayer();
   await audioPlayer.init();
+  
+  // Restore voice list from storage
+  await restoreVoiceList();
   
   // Load saved settings
   chrome.storage.local.get({
@@ -269,6 +337,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
   });
   
+  // Refresh voices button
+  document.getElementById('refreshVoicesBtn').addEventListener('click', fetchVoices);
+
   // Save settings
   ['serverUrl', 'voice', 'speed', 'recordAudio', 'preprocessText'].forEach(id => {
     document.getElementById(id).addEventListener('change', saveSettings);

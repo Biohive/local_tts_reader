@@ -145,6 +145,12 @@
       border: 1px solid #0f3460;
       background-color: #1a1a2e;
       color: #e6e6e6;
+      box-sizing: border-box;
+    }
+
+    .voice-row select {
+      flex: 1;
+      min-width: 0;
     }
 
     .slider-container {
@@ -199,6 +205,44 @@
       font-size: 0.8em;
       color: #aaa;
       margin-top: 5px;
+    }
+
+    .voice-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .voice-row select {
+      flex: 1;
+    }
+
+    .icon-btn {
+      background-color: #0f3460;
+      color: #e6e6e6;
+      border: none;
+      border-radius: 4px;
+      width: 32px;
+      height: 34px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .icon-btn:hover:not(:disabled) {
+      background-color: #e94560;
+    }
+
+    .icon-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .icon-btn .fa-spin {
+      animation: spin 0.8s linear infinite;
     }
 
     #status {
@@ -258,17 +302,22 @@
   <div class="settings-panel">
     <div class="setting-group">
       <label for="voice">Voice</label>
-      <select id="voice">
-        <option value="am_adam">Adam (Alloy)</option>
-        <option value="af_nicole">Nicole (Ash)</option>
-        <option value="bf_emma">Emma (Coral)</option>
-        <option value="af_bella">Bella (Echo)</option>
-        <option value="af_sarah">Sarah (Fable)</option>
-        <option value="bm_george">George (Onyx)</option>
-        <option value="bf_isabella">Isabella (Nova)</option>
-        <option value="am_michael">Michael (Sage)</option>
-        <option value="af_sky">Sky (Shimmer)</option>
-      </select>
+      <div class="voice-row">
+        <select id="voice">
+          <option value="am_adam">Adam (Alloy)</option>
+          <option value="af_nicole">Nicole (Ash)</option>
+          <option value="bf_emma">Emma (Coral)</option>
+          <option value="af_bella">Bella (Echo)</option>
+          <option value="af_sarah">Sarah (Fable)</option>
+          <option value="bm_george">George (Onyx)</option>
+          <option value="bf_isabella">Isabella (Nova)</option>
+          <option value="am_michael">Michael (Sage)</option>
+          <option value="af_sky">Sky (Shimmer)</option>
+        </select>
+        <button class="icon-btn" id="refreshVoicesBtn" title="Refresh voices from server">
+          <i class="fas fa-sync-alt"></i>
+        </button>
+      </div>
     </div>
 
     <div class="setting-group">
