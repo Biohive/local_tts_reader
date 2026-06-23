@@ -15,6 +15,9 @@ class TextProcessor {
     
     let processedText = text;
     
+    // Remove emojis (including skin tone modifiers and zero-width joiners)
+    processedText = this.removeEmojis(processedText);
+    
     // Remove markdown headers
     processedText = processedText.replace(/^#{1,6}\s+(.+)$/gm, '$1');
     
@@ -57,6 +60,17 @@ class TextProcessor {
     return processedText;
   }
   
+  /**
+   * Remove emojis from text
+   * @param {string} text - The text containing emojis
+   * @returns {string} - Text with emojis removed
+   */
+  static removeEmojis(text) {
+    // Use Unicode property escape to match all emoji characters
+    // This includes: emojis, skin tone modifiers, zero-width joiners
+    return text.replace(/\p{Emoji}/gu, ' ');
+  }
+
   /**
    * Process URLs in text
    * @param {string} text - The text containing URLs
